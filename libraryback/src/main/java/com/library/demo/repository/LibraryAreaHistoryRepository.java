@@ -47,6 +47,15 @@ public interface LibraryAreaHistoryRepository extends JpaRepository<LibraryAreaH
            "ORDER BY avgOccupation DESC", nativeQuery = true)
     List<Object[]> findBusiestHoursByAreaAndDate(String areaId, LocalDate date);
     
+    // 查詢特定分館最繁忙的時間段（按小時分組）
+    @Query(value = "SELECT DATEPART(HOUR, lah.record_time) as hour, AVG((lah.total_count - lah.free_count) * 100.0 / " +
+           "CASE WHEN lah.total_count = 0 THEN 1 ELSE lah.total_count END) as avgOccupation " +
+           "FROM library_areas_history lah WHERE lah.branch_name = :branchName AND CAST(lah.record_time AS DATE) = :date " +
+           "AND lah.total_count > 0 " +
+           "GROUP BY DATEPART(HOUR, lah.record_time) " +
+           "ORDER BY hour ASC", nativeQuery = true)
+    List<Object[]> findBusiestHoursByBranchAndDate(String branchName, LocalDate date);
+    
     // 計算特定時間之前的記錄數量
     long countByRecordTimeBefore(LocalDateTime dateTime);
     

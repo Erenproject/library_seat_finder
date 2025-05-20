@@ -40,6 +40,9 @@ public class LibraryAreaService {
     // 臺北市圖書館API URL
     private static final String TPML_API_URL = "https://seat.tpml.edu.tw/sm/service/getAllArea";
     
+    // 控制定時任務是否運行的標誌
+    private volatile boolean isSchedulerEnabled = true;
+    
     @Autowired
     private LibraryAreaRepository libraryAreaRepository;
     
@@ -53,11 +56,39 @@ public class LibraryAreaService {
     private ObjectMapper objectMapper;
     
     /**
+     * 啟用定時任務
+     */
+    public void enableScheduler() {
+        isSchedulerEnabled = true;
+        System.out.println("定時任務已啟用");
+    }
+
+    /**
+     * 禁用定時任務
+     */
+    public void disableScheduler() {
+        isSchedulerEnabled = false;
+        System.out.println("定時任務已禁用");
+    }
+    
+    /**
+     * 檢查定時任務是否啟用
+     */
+    public boolean isSchedulerEnabled() {
+        return isSchedulerEnabled;
+    }
+    
+    /**
      * 定時從臺北市圖書館API獲取座位數據並保存
      * 每分鐘執行一次
      */
     @Scheduled(fixedRate = 60000) // 每分鐘執行一次
     public void fetchAndSaveLibraryData() {
+        // 如果定時任務被禁用，則不執行
+        if (!isSchedulerEnabled) {
+            return;
+        }
+
         try {
             System.out.println("開始執行定時獲取圖書館座位數據...");
             
@@ -654,6 +685,13 @@ public class LibraryAreaService {
      */
     public List<Object[]> getBusiestHoursByAreaAndDate(String areaId, LocalDate date) {
         return libraryAreaHistoryRepository.findBusiestHoursByAreaAndDate(areaId, date);
+    }
+    
+    /**
+     * 獲取特定分館在指定日期最繁忙的時間段
+     */
+    public List<Object[]> getBusiestHoursByBranchAndDate(String branchName, LocalDate date) {
+        return libraryAreaHistoryRepository.findBusiestHoursByBranchAndDate(branchName, date);
     }
     
     /**

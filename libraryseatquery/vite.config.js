@@ -1,10 +1,8 @@
 import { fileURLToPath, URL } from 'node:url'
-
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
-
-// https://vite.dev/config/
+v --
 export default defineConfig({
   plugins: [
     vue(),
@@ -16,14 +14,14 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',      // ← bind to all interfaces
+    port: 5173,           // ← pick your preferred port
     proxy: {
-      // 代理API請求到台北市圖書館
       '/api/taipei': {
         target: 'https://seat.tpml.edu.tw',
         changeOrigin: true,
         rewrite: path => path.replace(/^\/api\/taipei/, '/sm/service')
       },
-      // 代理API請求到後端服務
       '/api/library': {
         target: 'http://localhost:8080',
         changeOrigin: true

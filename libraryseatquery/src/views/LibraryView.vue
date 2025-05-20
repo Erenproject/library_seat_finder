@@ -5,9 +5,10 @@ import PeakHoursComponent from '../components/PeakHoursComponent.vue'
 import axios from 'axios'
 
 // 設定 axios 基礎 URL
-const apiBaseUrl = 'http://localhost:8080/api/library'
+const apiBaseUrl = 'http://localhost:8080/api'
+const libraryApiUrl = `${apiBaseUrl}/library`
 const axiosInstance = axios.create({
-  baseURL: apiBaseUrl,
+  baseURL: libraryApiUrl,
   timeout: 10000
 })
 
@@ -19,11 +20,22 @@ const loading = ref(false)
 const activeTab = ref('current')
 const viewMode = ref('group') // 'group' 或 'table' 檢視模式
 
+// 圖書館開閉館時間
+const libraryHours = ref({
+  weekdayOpenTime: '',
+  weekdayCloseTime: '',
+  weekendOpenTime: '',
+  weekendCloseTime: ''
+})
+const isLibraryOpenNow = ref(false)
+
 // 熱門時段相關
 const peakHoursData = ref([])
 const selectedArea = ref(null)
+const selectedBranch = ref(null)
 const selectedDate = ref(new Date().toISOString().split('T')[0])
 const showPeakHours = ref(false)
+const peakHoursType = ref('area') // 'area' 或 'branch'
 
 // 獲取當前座位可用性（表格檢視）
 const fetchCurrentData = async () => {
@@ -51,6 +63,40 @@ const fetchGroupedData = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 獲取圖書館營業時間
+const fetchLibraryHours = async () => {
+  try {
+    const response = await axios.get(`${apiBaseUrl}/config/library-hours`)
+    libraryHours.value = response.data
+    checkLibraryOpenStatus()
+  } catch (err) {
+    console.error('獲取圖書館營業時間失敗:', err)
+  }
+}
+
+// 檢查圖書館是否開放中
+const checkLibraryOpenStatus = () => {
+  const now = new Date()
+  const currentTime = now.getHours() * 60 + now.getMinutes()
+  
+  // 判斷是否為週末
+  const isWeekend = now.getDay() === 0 || now.getDay() === 6
+  
+  // 選擇對應的開閉館時間
+  const openTimeStr = isWeekend ? libraryHours.value.weekendOpenTime : libraryHours.value.weekdayOpenTime
+  const closeTimeStr = isWeekend ? libraryHours.value.weekendCloseTime : libraryHours.value.weekdayCloseTime
+  
+  // 轉換時間為分鐘
+  const openTimeParts = openTimeStr.split(':')
+  const closeTimeParts = closeTimeStr.split(':')
+  
+  const openTimeMinutes = parseInt(openTimeParts[0]) * 60 + parseInt(openTimeParts[1])
+  const closeTimeMinutes = parseInt(closeTimeParts[0]) * 60 + parseInt(closeTimeParts[1])
+  
+  // 判斷當前時間是否在開館時間內
+  isLibraryOpenNow.value = currentTime >= openTimeMinutes && currentTime < closeTimeMinutes
 }
 
 // 獲取統計數據
@@ -94,6 +140,10 @@ const switchViewMode = (mode) => {
 // 初始加載
 onMounted(() => {
   fetchGroupedData() // 預設使用分組檢視
+  fetchLibraryHours() // 獲取圖書館營業時間
+  
+  // 每分鐘更新一次開放狀態
+  setInterval(checkLibraryOpenStatus, 60000)
 })
 
 // 分館列表
@@ -136,8 +186,26 @@ const fetchPeakHoursData = async (areaId, date) => {
   try {
     const response = await axiosInstance.get(`/history/area/${areaId}/date/${date}/busiest-hours`)
     peakHoursData.value = response.data.busiestHours
+    peakHoursType.value = 'area'
   } catch (err) {
     error.value = '熱門時段資料載入失敗: ' + (err.response?.data?.message || err.message)
+    console.error(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 獲取分館熱門時段數據
+const fetchBranchPeakHoursData = async (branchName, date) => {
+  if (!branchName || !date) return
+  
+  loading.value = true
+  try {
+    const response = await axiosInstance.get(`/history/branch/${branchName}/date/${date}/busiest-hours`)
+    peakHoursData.value = response.data.busiestHours
+    peakHoursType.value = 'branch'
+  } catch (err) {
+    error.value = '分館熱門時段資料載入失敗: ' + (err.response?.data?.message || err.message)
     console.error(err)
   } finally {
     loading.value = false
@@ -147,7 +215,16 @@ const fetchPeakHoursData = async (areaId, date) => {
 // 選擇區域查看熱門時段
 const selectAreaForPeakHours = (area) => {
   selectedArea.value = area
+  selectedBranch.value = null
   fetchPeakHoursData(area.areaId, selectedDate.value)
+  showPeakHours.value = true
+}
+
+// 選擇分館查看熱門時段
+const selectBranchForPeakHours = (branchName) => {
+  selectedBranch.value = branchName
+  selectedArea.value = null
+  fetchBranchPeakHoursData(branchName, selectedDate.value)
   showPeakHours.value = true
 }
 
@@ -156,6 +233,8 @@ const handleDateChange = (event) => {
   selectedDate.value = event.target.value
   if (selectedArea.value) {
     fetchPeakHoursData(selectedArea.value.areaId, selectedDate.value)
+  } else if (selectedBranch.value) {
+    fetchBranchPeakHoursData(selectedBranch.value, selectedDate.value)
   }
 }
 
@@ -163,11 +242,32 @@ const handleDateChange = (event) => {
 const closePeakHours = () => {
   showPeakHours.value = false
 }
+
+// 格式化時間為易讀格式（HH:MM）
+const formatTime = (timeStr) => {
+  if (!timeStr) return ''
+  return timeStr
+}
 </script>
 
 <template>
   <div class="container py-4">
     <h1 class="text-center mb-4">臺北市圖書館座位查詢系統</h1>
+    
+    <!-- 圖書館開閉館時間提示 -->
+    <div class="alert" :class="isLibraryOpenNow ? 'alert-success' : 'alert-warning'" role="alert">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <strong>圖書館狀態：</strong> {{ isLibraryOpenNow ? '開放中' : '已閉館' }}
+          <span v-if="!isLibraryOpenNow" class="ms-2">(數據讀取已暫停)</span>
+        </div>
+        <div>
+          <strong>營業時間：</strong> 
+          平日 {{ formatTime(libraryHours.weekdayOpenTime) }} - {{ formatTime(libraryHours.weekdayCloseTime) }} | 
+          週末 {{ formatTime(libraryHours.weekendOpenTime) }} - {{ formatTime(libraryHours.weekendCloseTime) }}
+        </div>
+      </div>
+    </div>
     
     <!-- 頁籤選項 -->
     <ul class="nav nav-tabs mb-4">
@@ -228,8 +328,11 @@ const closePeakHours = () => {
       <div v-if="viewMode === 'group'" class="row g-4">
         <div v-for="branchName in branchNames" :key="branchName" class="col-12 col-xl-6">
           <div class="card shadow-sm h-100">
-            <div class="card-header">
+            <div class="card-header d-flex justify-content-between">
               <h3 class="card-title h5 mb-0">{{ branchName }}</h3>
+              <button class="btn btn-sm btn-primary" @click="selectBranchForPeakHours(branchName)">
+                查看分館熱門時段
+              </button>
             </div>
             <div class="card-body p-0">
               <div class="table-responsive">
@@ -477,6 +580,12 @@ const closePeakHours = () => {
               </div>
             </div>
             
+            <div v-else-if="selectedBranch" class="card bg-light mb-3">
+              <div class="card-body">
+                <p class="mb-0"><strong>分館：</strong> {{ selectedBranch }}</p>
+              </div>
+            </div>
+            
             <div v-if="loading" class="text-center py-4">
               <div class="spinner-border text-primary" role="status">
                 <span class="visually-hidden">載入熱門時段資料中...</span>
@@ -493,6 +602,8 @@ const closePeakHours = () => {
               :hoursData="peakHoursData" 
               :selectedDate="selectedDate" 
               :selectedArea="selectedArea"
+              :selectedBranch="selectedBranch"
+              :type="peakHoursType"
             />
           </div>
           <div class="modal-footer">

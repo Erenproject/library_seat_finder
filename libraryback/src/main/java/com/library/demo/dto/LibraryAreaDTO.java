@@ -1,6 +1,7 @@
 package com.library.demo.dto;
 
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 
 public class LibraryAreaDTO {
     private String areaId;
@@ -11,6 +12,9 @@ public class LibraryAreaDTO {
     private int totalCount;
     private LocalDateTime recordTime;
     private double occupationRate;
+    private boolean isLibraryOpen;
+    private LocalTime openTime;
+    private LocalTime closeTime;
     
     public LibraryAreaDTO() {}
     
@@ -76,5 +80,29 @@ public class LibraryAreaDTO {
     
     public void setOccupationRate(double occupationRate) {
         this.occupationRate = occupationRate;
+    }
+    
+    public boolean isLibraryOpen() {
+        return isLibraryOpen;
+    }
+    
+    public void setLibraryOpen(boolean isLibraryOpen) {
+        this.isLibraryOpen = isLibraryOpen;
+    }
+    
+    public LocalTime getOpenTime() {
+        return openTime;
+    }
+    
+    public void setOpenTime(LocalTime openTime) {
+        this.openTime = openTime;
+    }
+    
+    public LocalTime getCloseTime() {
+        return closeTime;
+    }
+    
+    public void setCloseTime(LocalTime closeTime) {
+        this.closeTime = closeTime;
     }
 } 

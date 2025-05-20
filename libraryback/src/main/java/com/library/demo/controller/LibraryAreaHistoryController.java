@@ -73,6 +73,23 @@ public class LibraryAreaHistoryController {
     }
     
     /**
+     * 獲取特定分館在指定日期最繁忙的時間段
+     */
+    @GetMapping("/branch/{branchName}/date/{date}/busiest-hours")
+    public ResponseEntity<Map<String, Object>> getBusiestHoursByBranchAndDate(
+            @PathVariable String branchName,
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        List<Object[]> results = libraryAreaService.getBusiestHoursByBranchAndDate(branchName, date);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("branchName", branchName);
+        response.put("date", date);
+        response.put("busiestHours", results);
+        
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
      * 獲取指定日期每個區域的平均使用率
      */
     @GetMapping("/date/{date}/average-occupation")
