@@ -5,7 +5,7 @@ import PeakHoursComponent from '../components/PeakHoursComponent.vue'
 import axios from 'axios'
 
 // 設定 axios 基礎 URL
-const apiBaseUrl = 'http://localhost:8080/api'
+const apiBaseUrl = 'http://35.87.154.178:8080/api'
 const libraryApiUrl = `${apiBaseUrl}/library`
 const axiosInstance = axios.create({
   baseURL: libraryApiUrl,
