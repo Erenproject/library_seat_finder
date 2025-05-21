@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.library.demo.dto.LibraryBranchDTO;
 import com.library.demo.service.LibraryBranchService;
+import com.library.demo.service.ScheduledService;
 
 @RestController
 @RequestMapping("/api/branch")
@@ -23,6 +24,9 @@ public class LibraryBranchController {
 
     @Autowired
     private LibraryBranchService libraryBranchService;
+    
+    @Autowired
+    private ScheduledService scheduledService;
     
     /**
      * 獲取所有分館信息
@@ -52,7 +56,7 @@ public class LibraryBranchController {
     public ResponseEntity<Map<String, Object>> checkLibraryClosing() {
         Map<String, Object> response = new HashMap<>();
         try {
-            libraryBranchService.checkLibraryClosingAndLoadData();
+            scheduledService.checkForClosingTimeUpdate();
             response.put("message", "成功檢查閉館狀態並更新數據");
             return ResponseEntity.ok(response);
         } catch (Exception e) {

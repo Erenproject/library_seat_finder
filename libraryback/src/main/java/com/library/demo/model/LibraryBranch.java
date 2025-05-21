@@ -1,10 +1,12 @@
 package com.library.demo.model;
 
 import java.time.LocalTime;
+import java.time.ZoneId;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import org.springframework.beans.factory.annotation.Value;
 
 @Entity
 @Table(name = "library_branches")
@@ -15,6 +17,9 @@ public class LibraryBranch {
     private LocalTime openTime;
     private LocalTime closeTime;
     private boolean isOpen;
+    
+    @Value("${spring.jackson.time-zone:Asia/Taipei}")
+    private String timeZone;
     
     public LibraryBranch() {}
     
@@ -57,9 +62,17 @@ public class LibraryBranch {
         this.isOpen = isOpen;
     }
     
-    // 判斷當前時間分館是否開放
+    /**
+     * 判斷圖書館當前是否開放
+     */
     public boolean isOpenNow() {
-        LocalTime now = LocalTime.now();
-        return isOpen && now.isAfter(openTime) && now.isBefore(closeTime);
+        LocalTime currentTime = LocalTime.now(ZoneId.of(timeZone));
+        
+        // 不需要parse，直接使用已有的LocalTime對象
+        LocalTime openTimeValue = this.openTime;
+        LocalTime closeTimeValue = this.closeTime;
+        
+        // 使用與ScheduledService相同的邏輯
+        return !currentTime.isBefore(openTimeValue) && currentTime.isBefore(closeTimeValue);
     }
 } 

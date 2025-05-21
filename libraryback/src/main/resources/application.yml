@@ -42,9 +42,9 @@ logging:
 
 # 圖書館營業時間配置
 library:
-  open-time: "08:00"
-  close-time: "22:00"
+  open-time: "08:30"
+  close-time: "21:00"
   # 工作日和週末可以設定不同的時間
   weekend:
     open-time: "09:00"
-    close-time: "21:00"
+    close-time: "17:00"

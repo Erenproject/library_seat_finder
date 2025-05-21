@@ -7,6 +7,8 @@ import java.net.URL;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -14,6 +16,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -41,7 +44,7 @@ public class LibraryAreaService {
     private static final String TPML_API_URL = "https://seat.tpml.edu.tw/sm/service/getAllArea";
     
     // 控制定時任務是否運行的標誌
-    private volatile boolean isSchedulerEnabled = true;
+    private final java.util.concurrent.atomic.AtomicBoolean isSchedulerEnabled = new java.util.concurrent.atomic.AtomicBoolean(true);
     
     @Autowired
     private LibraryAreaRepository libraryAreaRepository;
@@ -55,11 +58,17 @@ public class LibraryAreaService {
     @Autowired
     private ObjectMapper objectMapper;
     
+    @Value("${spring.jackson.time-zone:Asia/Taipei}")
+    private String timeZone;
+    
+    // 在LibraryAreaService中添加同步機制
+    private final Object dataUpdateLock = new Object();
+    
     /**
      * 啟用定時任務
      */
     public void enableScheduler() {
-        isSchedulerEnabled = true;
+        isSchedulerEnabled.set(true);
         System.out.println("定時任務已啟用");
     }
 
@@ -67,7 +76,7 @@ public class LibraryAreaService {
      * 禁用定時任務
      */
     public void disableScheduler() {
-        isSchedulerEnabled = false;
+        isSchedulerEnabled.set(false);
         System.out.println("定時任務已禁用");
     }
     
@@ -75,7 +84,7 @@ public class LibraryAreaService {
      * 檢查定時任務是否啟用
      */
     public boolean isSchedulerEnabled() {
-        return isSchedulerEnabled;
+        return isSchedulerEnabled.get();
     }
     
     /**
@@ -84,49 +93,195 @@ public class LibraryAreaService {
      */
     @Scheduled(fixedRate = 60000) // 每分鐘執行一次
     public void fetchAndSaveLibraryData() {
-        // 如果定時任務被禁用，則不執行
-        if (!isSchedulerEnabled) {
-            return;
-        }
+        synchronized(dataUpdateLock) {
+            // 如果定時任務被禁用，則不執行
+            if (!isSchedulerEnabled.get()) {
+                return;
+            }
 
+            try {
+                System.out.println("開始執行定時獲取圖書館座位數據...");
+                
+                // 嘗試所有可能的方法獲取數據
+                String jsonData = null;
+                
+                // 1. 首先使用標準API請求
+                System.out.println("嘗試使用標準API請求...");
+                jsonData = fetchDataFromApi();
+                
+                // 2. 如果失敗，嘗試直接從網站獲取
+                if (jsonData == null || jsonData.trim().isEmpty() || !isValidJson(jsonData)) {
+                    System.out.println("標準API請求失敗，嘗試從網站直接獲取");
+                    jsonData = fetchDataFromWebsite();
+                }
+                
+                // 3. 如果還是失敗，嘗試模擬瀏覽器行為
+                if (jsonData == null || jsonData.trim().isEmpty() || !isValidJson(jsonData)) {
+                    System.out.println("從網站直接獲取失敗，嘗試模擬瀏覽器行為");
+                    jsonData = simulateBrowserFetch();
+                }
+                
+                // 如果獲取成功
+                if (jsonData != null && !jsonData.trim().isEmpty() && isValidJson(jsonData)) {
+                    System.out.println("成功獲取有效的JSON數據");
+                    parseAndSaveData(jsonData);
+                } else {
+                    // 使用硬編碼的範例數據作為備選
+                    System.out.println("無法從API獲取有效的JSON數據，使用備選數據");
+                    String jsonSample = fetchHardcodedSampleData();
+                    parseAndSaveData(jsonSample);
+                }
+            } catch (Exception e) {
+                // 記錄日誌
+                System.err.println("Error fetching library data: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    /**
+     * 使用自訂時間戳從臺北市圖書館API獲取座位數據並保存
+     * 主要用於閉館時記錄最終狀態
+     * @param customTime 自訂時間戳
+     */
+    public void fetchAndSaveWithCustomTime(LocalDateTime customTime) {
+        synchronized(dataUpdateLock) {
+            try {
+                System.out.println("開始使用自訂時間戳獲取圖書館座位數據: " + customTime);
+                
+                // 嘗試所有可能的方法獲取數據
+                String jsonData = null;
+                
+                // 1. 首先使用標準API請求
+                System.out.println("嘗試使用標準API請求...");
+                jsonData = fetchDataFromApi();
+                
+                // 2. 如果失敗，嘗試直接從網站獲取
+                if (jsonData == null || jsonData.trim().isEmpty() || !isValidJson(jsonData)) {
+                    System.out.println("標準API請求失敗，嘗試從網站直接獲取");
+                    jsonData = fetchDataFromWebsite();
+                }
+                
+                // 3. 如果還是失敗，嘗試模擬瀏覽器行為
+                if (jsonData == null || jsonData.trim().isEmpty() || !isValidJson(jsonData)) {
+                    System.out.println("從網站直接獲取失敗，嘗試模擬瀏覽器行為");
+                    jsonData = simulateBrowserFetch();
+                }
+                
+                // 如果獲取成功
+                if (jsonData != null && !jsonData.trim().isEmpty() && isValidJson(jsonData)) {
+                    // 解析並使用自訂時間戳保存數據
+                    parseAndSaveDataWithCustomTime(jsonData, customTime);
+                } else {
+                    // 使用硬編碼的範例數據作為備選
+                    System.out.println("無法從API獲取有效的JSON數據，使用備選數據");
+                    String jsonSample = fetchHardcodedSampleData();
+                    parseAndSaveDataWithCustomTime(jsonSample, customTime);
+                }
+            } catch (Exception e) {
+                System.err.println("使用自訂時間戳獲取圖書館座位數據時發生錯誤: " + e.getMessage());
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    /**
+     * 使用自訂時間戳解析並保存圖書館座位數據
+     * @param jsonData JSON格式的座位數據
+     * @param customTime 自訂時間戳
+     */
+    private void parseAndSaveDataWithCustomTime(String jsonData, LocalDateTime customTime) {
         try {
-            System.out.println("開始執行定時獲取圖書館座位數據...");
+            System.out.println("開始解析並使用自訂時間戳保存座位數據...");
             
-            // 嘗試所有可能的方法獲取數據
-            String jsonData = null;
+            // 解析JSON數據
+            JsonNode rootNode = objectMapper.readTree(jsonData);
+            List<LibraryArea> areas = new ArrayList<>();
+            List<LibraryAreaHistory> histories = new ArrayList<>();
             
-            // 1. 首先使用標準API請求
-            System.out.println("嘗試使用標準API請求...");
-            jsonData = fetchDataFromApi();
+            // 獲取當前日期時間（使用自訂時間）
+            LocalDateTime now = customTime;
             
-            // 2. 如果失敗，嘗試直接從網站獲取
-            if (jsonData == null || jsonData.trim().isEmpty() || !isValidJson(jsonData)) {
-                System.out.println("標準API請求失敗，嘗試從網站直接獲取");
-                jsonData = fetchDataFromWebsite();
+            // 解析數據
+            for (JsonNode node : rootNode) {
+                // 首先檢查並使用正確的欄位名稱
+                // API 可能返回 area_id 或 areaId，所以需要檢查兩者
+                String areaId = "";
+                if (node.has("area_id")) {
+                    areaId = node.path("area_id").asText();
+                } else if (node.has("areaId")) {
+                    areaId = node.path("areaId").asText();
+                }
+                
+                String areaName = "";
+                if (node.has("area_name")) {
+                    areaName = node.path("area_name").asText();
+                } else if (node.has("areaName")) {
+                    areaName = node.path("areaName").asText();
+                }
+                
+                String branchName = "";
+                if (node.has("branch_name")) {
+                    branchName = node.path("branch_name").asText();
+                } else if (node.has("branchName")) {
+                    branchName = node.path("branchName").asText();
+                }
+                
+                String floorName = "";
+                if (node.has("floor_name")) {
+                    floorName = node.path("floor_name").asText();
+                } else if (node.has("floorName")) {
+                    floorName = node.path("floorName").asText();
+                }
+                
+                int freeCount = 0;
+                if (node.has("free_count")) {
+                    freeCount = node.path("free_count").asInt();
+                } else if (node.has("freeCount")) {
+                    freeCount = node.path("freeCount").asInt();
+                }
+                
+                int totalCount = 0;
+                if (node.has("total_count")) {
+                    totalCount = node.path("total_count").asInt();
+                } else if (node.has("totalCount")) {
+                    totalCount = node.path("totalCount").asInt();
+                }
+                
+                // 確保 areaId 有值
+                if (areaId.isEmpty()) {
+                    // 如果沒有 areaId，則生成一個臨時值
+                    areaId = String.valueOf(System.currentTimeMillis() + areas.size());
+                    System.out.println("生成臨時 areaId: " + areaId);
+                }
+                
+                // 輸出解析結果以便調試
+                System.out.println("解析數據（使用自訂時間）: areaId=" + areaId + 
+                                  ", areaName=" + areaName +
+                                  ", branchName=" + branchName +
+                                  ", floorName=" + floorName +
+                                  ", freeCount=" + freeCount +
+                                  ", totalCount=" + totalCount +
+                                  ", customTime=" + customTime);
+                
+                LibraryArea area = new LibraryArea(areaId, branchName, floorName, areaName, 
+                                                  freeCount, totalCount, now);
+                areas.add(area);
+                
+                // 為每個區域創建歷史記錄，但不立即保存
+                LibraryAreaHistory history = new LibraryAreaHistory(area);
+                histories.add(history);
             }
             
-            // 3. 如果還是失敗，嘗試模擬瀏覽器行為
-            if (jsonData == null || jsonData.trim().isEmpty() || !isValidJson(jsonData)) {
-                System.out.println("從網站直接獲取失敗，嘗試模擬瀏覽器行為");
-                jsonData = simulateBrowserFetch();
-            }
+            // 批量保存當前數據
+            libraryAreaRepository.saveAll(areas);
             
-            // 如果獲取成功
-            if (jsonData != null && !jsonData.trim().isEmpty() && isValidJson(jsonData)) {
-                System.out.println("成功獲取有效的JSON數據:");
-                System.out.println(jsonData.substring(0, Math.min(jsonData.length(), 500)) + "...");
-                parseAndSaveData(jsonData);
-            } else {
-                // 使用硬編碼的範例數據作為備選
-                System.out.println("無法從API獲取有效的JSON數據，使用備選數據");
-                String jsonSample = fetchHardcodedSampleData();
-                System.out.println("使用硬編碼樣本數據:");
-                System.out.println(jsonSample);
-                parseAndSaveData(jsonSample);
-            }
+            // 批量保存歷史記錄數據
+            libraryAreaHistoryRepository.saveAll(histories);
+            
+            System.out.println("成功批量保存數據和歷史記錄，使用自訂時間：" + customTime + "，記錄數量: " + areas.size());
         } catch (Exception e) {
-            // 記錄日誌
-            System.err.println("Error fetching library data: " + e.getMessage());
+            System.err.println("解析和保存數據失敗: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -396,13 +551,14 @@ public class LibraryAreaService {
      */
     private void parseAndSaveData(String jsonData) {
         try {
+            // 獲取當前時間作為記錄時間
+            ZonedDateTime zonedNow = ZonedDateTime.now(ZoneId.of(timeZone));
+            LocalDateTime now = zonedNow.toLocalDateTime();
+            
             // 解析JSON數據
             JsonNode rootNode = objectMapper.readTree(jsonData);
             List<LibraryArea> areas = new ArrayList<>();
             List<LibraryAreaHistory> histories = new ArrayList<>();
-            
-            // 使用當前時間作為記錄時間
-            LocalDateTime now = LocalDateTime.now();
             
             // 解析數據
             for (JsonNode node : rootNode) {
@@ -708,7 +864,8 @@ public class LibraryAreaService {
     @Scheduled(cron = "0 0 2 * * ?") // 每天凌晨2點執行
     public void cleanupOldData() {
         try {
-            LocalDateTime thirtyDaysAgo = LocalDateTime.now().minusDays(30);
+            ZonedDateTime zonedNow = ZonedDateTime.now(ZoneId.of(timeZone));
+            LocalDateTime thirtyDaysAgo = zonedNow.toLocalDateTime().minusDays(30);
             
             // 獲取要刪除的數據數量用於記錄
             long count = libraryAreaHistoryRepository.countByRecordTimeBefore(thirtyDaysAgo);
