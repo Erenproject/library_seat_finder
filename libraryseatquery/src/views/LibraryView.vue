@@ -6,8 +6,8 @@ import axios from 'axios'
 
 // 設定 axios 基礎 URL
 
-// const apiBaseUrl = 'http://localhost:8080/api'
-const apiBaseUrl = 'http://35.87.154.178:8080/api'
+const apiBaseUrl = 'http://localhost:8080/api'
+// const apiBaseUrl = 'http://35.87.154.178:8080/api'
 
 const libraryApiUrl = `${apiBaseUrl}/library`
 const axiosInstance = axios.create({
@@ -40,6 +40,25 @@ const selectedDate = ref(new Date().toISOString().split('T')[0])
 const showPeakHours = ref(false)
 const peakHoursType = ref('area') // 'area' 或 'branch'
 
+// 系統當前時間
+const currentSystemTime = ref('')
+
+// 更新系統時間
+const updateSystemTime = () => {
+  const now = new Date()
+  const options = { 
+    year: 'numeric', 
+    month: '2-digit', 
+    day: '2-digit',
+    hour: '2-digit', 
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Taipei'
+  }
+  currentSystemTime.value = now.toLocaleString('zh-TW', options).replace(/\//g, '-')
+}
+
 // 獲取當前座位可用性（表格檢視）
 const fetchCurrentData = async () => {
   loading.value = true
@@ -60,6 +79,16 @@ const fetchGroupedData = async () => {
   try {
     const response = await axiosInstance.get('/by-branch')
     groupedAreas.value = response.data
+    // 輸出後端返回的時間格式，用於調試
+    if (Object.keys(response.data).length > 0) {
+      const firstBranch = Object.keys(response.data)[0]
+      if (response.data[firstBranch] && response.data[firstBranch].length > 0) {
+        console.log('後端返回的原始時間:', response.data[firstBranch][0].recordTime)
+        console.log('解析為JS Date對象:', new Date(response.data[firstBranch][0].recordTime))
+        console.log('解析後的UTC時間:', new Date(response.data[firstBranch][0].recordTime).toUTCString())
+        console.log('解析後的本地時間:', new Date(response.data[firstBranch][0].recordTime).toLocaleString())
+      }
+    }
   } catch (err) {
     error.value = '資料載入失敗: ' + (err.response?.data?.message || err.message)
     console.error(err)
@@ -72,6 +101,7 @@ const fetchGroupedData = async () => {
 const fetchLibraryHours = async () => {
   try {
     const response = await axios.get(`${apiBaseUrl}/config/library-hours`)
+    console.log('API返回的營業時間數據:', response.data)
     libraryHours.value = response.data
     checkLibraryOpenStatus()
   } catch (err) {
@@ -84,12 +114,13 @@ const checkLibraryOpenStatus = () => {
   const now = new Date()
   const currentTime = now.getHours() * 60 + now.getMinutes()
   
-  // 判斷是否為週末
-  const isWeekend = now.getDay() === 0 || now.getDay() === 6
+  // 判斷是否為週日或週一
+  const dayOfWeek = now.getDay() // 0 是週日，1 是週一，2 是週二，以此類推
+  const isSundayOrMonday = dayOfWeek === 0 || dayOfWeek === 1
   
   // 選擇對應的開閉館時間
-  const openTimeStr = isWeekend ? libraryHours.value.weekendOpenTime : libraryHours.value.weekdayOpenTime
-  const closeTimeStr = isWeekend ? libraryHours.value.weekendCloseTime : libraryHours.value.weekdayCloseTime
+  const openTimeStr = isSundayOrMonday ? libraryHours.value.weekendOpenTime : libraryHours.value.weekdayOpenTime
+  const closeTimeStr = isSundayOrMonday ? libraryHours.value.weekendCloseTime : libraryHours.value.weekdayCloseTime
   
   // 轉換時間為分鐘
   const openTimeParts = openTimeStr.split(':')
@@ -147,6 +178,11 @@ onMounted(() => {
   
   // 每分鐘更新一次開放狀態
   setInterval(checkLibraryOpenStatus, 60000)
+  
+  // 更新系統時間
+  updateSystemTime()
+  // 每秒更新一次系統時間
+  setInterval(updateSystemTime, 1000)
 })
 
 // 分館列表
@@ -156,6 +192,20 @@ const branchNames = computed(() => {
 
 // 更新時間
 const updateTime = computed(() => {
+  // 獲取當前是否為週日或週一
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const isSundayOrMonday = dayOfWeek === 0 || dayOfWeek === 1;
+  
+  // 如果圖書館已閉館，顯示閉館時間
+  if (!isLibraryOpenNow.value) {
+    const closeTimeStr = isSundayOrMonday ? libraryHours.value.weekendCloseTime : libraryHours.value.weekdayCloseTime;
+    // 添加日誌輸出
+    console.log("圖書館已閉館，顯示閉館時間: " + closeTimeStr);
+    return formatTime(closeTimeStr);
+  }
+  
+  // 原有邏輯處理開館時間
   if (viewMode.value === 'table' && areas.value.length > 0) {
     return formatDateTime(areas.value[0].recordTime)
   } else if (viewMode.value === 'group' && Object.keys(groupedAreas.value).length > 0) {
@@ -167,18 +217,80 @@ const updateTime = computed(() => {
   return ''
 })
 
+// 從後端獲取的原始時間
+const rawServerTime = computed(() => {
+  if (viewMode.value === 'table' && areas.value.length > 0) {
+    return areas.value[0].recordTime
+  } else if (viewMode.value === 'group' && Object.keys(groupedAreas.value).length > 0) {
+    const firstBranch = Object.keys(groupedAreas.value)[0]
+    if (groupedAreas.value[firstBranch] && groupedAreas.value[firstBranch].length > 0) {
+      return groupedAreas.value[firstBranch][0].recordTime
+    }
+  }
+  return ''
+})
+
 // 格式化日期時間
 const formatDateTime = (dateTimeStr) => {
   if (!dateTimeStr) return '';
-  const date = new Date(dateTimeStr);
-  return `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  
+  try {
+    // 明確建立一個台北時間（UTC+8）
+    const date = new Date(dateTimeStr);
+    
+    // 使用完整指定的台北時區格式
+    const options = { 
+      year: 'numeric', 
+      month: '2-digit', 
+      day: '2-digit',
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Taipei'
+    };
+    
+    // 輸出日期和時間以便調試
+    console.log('原始日期時間:', dateTimeStr);
+    console.log('格式化後時間:', date.toLocaleString('zh-TW', options));
+    
+    // 格式化為台北時間
+    return date.toLocaleString('zh-TW', options).replace(/\//g, '-');
+  } catch (error) {
+    console.error('時間格式化錯誤:', error);
+    // 備用方案 - 手動調整為UTC+8
+    const date = new Date(dateTimeStr);
+    // 輸出處理前後的時間以便調試
+    console.log('原始時間:', date);
+    console.log('UTC 時間:', date.getUTCHours());
+    
+    const utcHours = date.getUTCHours();
+    const taipeiHours = (utcHours + 8) % 24; // UTC+8
+    
+    return `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${taipeiHours.toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  }
 }
 
 // 格式化日期
 const formatDate = (dateStr) => {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
-  return `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+  
+  // 使用toLocaleDateString並指定台北時區
+  const options = { 
+    year: 'numeric', 
+    month: '2-digit', 
+    day: '2-digit',
+    timeZone: 'Asia/Taipei'
+  };
+  
+  try {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('zh-TW', options).replace(/\//g, '-');
+  } catch (error) {
+    console.error('日期格式化錯誤:', error);
+    // 備用方案
+    const date = new Date(dateStr);
+    return `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+  }
 }
 
 // 獲取熱門時段數據
@@ -251,6 +363,38 @@ const formatTime = (timeStr) => {
   if (!timeStr) return ''
   return timeStr
 }
+
+// 格式化時間（HH:MM）
+const formatTimeOnly = (dateTimeStr) => {
+  if (!dateTimeStr) return '';
+  
+  try {
+    // 明確建立一個台北時間（UTC+8）
+    const date = new Date(dateTimeStr);
+    
+    // 使用完整指定的台北時區格式
+    const options = { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Taipei'
+    };
+    
+    // 輸出原始和格式化時間以便調試
+    console.log('時間格式化 - 原始:', dateTimeStr);
+    console.log('時間格式化 - 結果:', date.toLocaleTimeString('zh-TW', options));
+    
+    return date.toLocaleTimeString('zh-TW', options);
+  } catch (error) {
+    console.error('時間格式化錯誤:', error);
+    // 備用方案 - 手動調整為UTC+8
+    const date = new Date(dateTimeStr);
+    const utcHours = date.getUTCHours();
+    const taipeiHours = (utcHours + 8) % 24; // UTC+8
+    
+    return `${taipeiHours.toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  }
+}
 </script>
 
 <template>
@@ -266,31 +410,43 @@ const formatTime = (timeStr) => {
         </div>
         <div>
           <strong>營業時間：</strong> 
-          平日 {{ formatTime(libraryHours.weekdayOpenTime) }} - {{ formatTime(libraryHours.weekdayCloseTime) }} | 
-          週末 {{ formatTime(libraryHours.weekendOpenTime) }} - {{ formatTime(libraryHours.weekendCloseTime) }}
+          週二至週六 {{ formatTime(libraryHours.weekdayOpenTime) }} - {{ formatTime(libraryHours.weekdayCloseTime) }} | 
+          週日、週一 {{ formatTime(libraryHours.weekendOpenTime) }} - {{ formatTime(libraryHours.weekendCloseTime) }}
         </div>
       </div>
     </div>
     
-    <!-- 頁籤選項 -->
-    <ul class="nav nav-tabs mb-4">
-      <li class="nav-item">
-        <button 
-          class="nav-link"
-          :class="{ active: activeTab === 'current' }" 
-          @click="switchTab('current')">
-          當前座位可用性
-        </button>
-      </li>
-      <li class="nav-item">
-        <button 
-          class="nav-link"
-          :class="{ active: activeTab === 'stats' }" 
-          @click="switchTab('stats')">
-          統計資訊
-        </button>
-      </li>
-    </ul>
+    <!-- 頁籤選項和當前時間 -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <ul class="nav nav-tabs mb-0">
+        <li class="nav-item">
+          <button 
+            class="nav-link"
+            :class="{ active: activeTab === 'current' }" 
+            @click="switchTab('current')">
+            當前座位可用性
+          </button>
+        </li>
+        <li class="nav-item">
+          <button 
+            class="nav-link"
+            :class="{ active: activeTab === 'stats' }" 
+            @click="switchTab('stats')">
+            統計資訊
+          </button>
+        </li>
+      </ul>
+      
+      <!-- 當前系統時間 -->
+      <div class="text-primary">
+        <div class="fw-bold">{{ currentSystemTime }}</div>
+        <div v-if="rawServerTime" class="small text-muted">
+          後端資料時間: {{ updateTime }}
+          <br>
+          <small>原始: {{ rawServerTime }}</small>
+        </div>
+      </div>
+    </div>
     
     <!-- 載入中提示 -->
     <div v-if="loading" class="d-flex justify-content-center my-5">
@@ -308,7 +464,7 @@ const formatTime = (timeStr) => {
     <!-- 當前座位可用性 -->
     <div v-if="activeTab === 'current' && !loading">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2>當前座位可用情況 <span v-if="updateTime" class="fs-6 text-muted">（更新時間：{{ updateTime }}）</span></h2>
+        <h2>當前座位可用情況 <span class="fs-6 text-muted">（當前時間：{{ currentSystemTime }}）</span></h2>
         
         <!-- 檢視模式切換 -->
         <div class="btn-group">
@@ -465,7 +621,7 @@ const formatTime = (timeStr) => {
               <tbody>
                 <tr v-for="(area, index) in stats.dailyMaxOccupations" :key="index">
                   <td>{{ formatDate(area.recordTime) }}</td>
-                  <td>{{ new Date(area.recordTime).toLocaleTimeString() }}</td>
+                  <td>{{ formatTimeOnly(area.recordTime) }}</td>
                   <td>{{ area.branchName }}</td>
                   <td>{{ area.areaName }}</td>
                   <td>
@@ -538,7 +694,7 @@ const formatTime = (timeStr) => {
                       {{ area.occupationRate.toFixed(2) }}%
                     </div>
                   </td>
-                  <td>{{ new Date(area.recordTime).toLocaleTimeString() }}</td>
+                  <td>{{ formatTimeOnly(area.recordTime) }}</td>
                 </tr>
               </tbody>
             </table>
